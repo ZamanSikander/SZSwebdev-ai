@@ -1,49 +1,135 @@
-// src/App.jsx
-import  { useState } from "react";
+import { useState, useEffect } from "react";
 import Header from "./components/Header";
- import Footer from "./components/Footer";
+import Footer from "./components/Footer";
 import TextArea from "./components/TextArea";
 import GenerateButton from "./components/GenerateButton";
-import AnswerDisplay from "./components/AnswerDisplay";
+import ConversationDisplay from "./components/ConversationDisplay";
 import SideBar from "./components/SideBar";
 import { useAnswerGenerator } from "./hooks/useAnswerGenerator";
+import { v4 as uuidv4 } from "uuid"; // To generate unique chat IDs
 
 function App() {
+  const [chats, setChats] = useState([]); // Store all chats (each with an ID and history)
+  const [activeChatId, setActiveChatId] = useState(null); // Track the active chat
   const [question, setQuestion] = useState("");
-  const [history, setHistory] = useState([]);
-  const { displayedAnswer, generateAnswers, loading } = useAnswerGenerator();
+  const { generateAnswers, loading } = useAnswerGenerator();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Control sidebar visibility
 
-  // This function handles generating the answer and updating the chat history
+  // Function to toggle sidebar visibility
+  const toggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  };
+
+  useEffect(() => {
+    const savedChats = JSON.parse(localStorage.getItem("chats")) || [];
+    setChats(savedChats);
+  }, []);
+
+  // Save chats to localStorage whenever the `chats` array changes
+  useEffect(() => {
+    if (chats.length > 0) {
+      localStorage.setItem("chats", JSON.stringify(chats));
+    }
+  }, [chats]);
+
+  const displayAnswerWordByWord = (answer, chatIndex, entryIndex) => {
+    const words = answer.split(" ");
+    let currentIndex = 0;
+
+    const intervalId = setInterval(() => {
+      setChats((prevChats) => {
+        const newChats = [...prevChats];
+        const currentChat = newChats[chatIndex];
+        currentChat.conversation[entryIndex].answer +=
+          (currentIndex > 0 ? " " : "") + words[currentIndex];
+        currentIndex++;
+
+        if (currentIndex >= words.length) {
+          clearInterval(intervalId); // Stop interval when done
+        }
+        return newChats;
+      });
+    }, 100); // Adjust the interval timing as needed
+  };
+
   const handleGenerateAnswer = async () => {
-    if (question.trim()) {
-      await generateAnswers(question); // Call the API to generate the answer
+    if (question.trim() && activeChatId !== null) {
+      const chatIndex = chats.findIndex((chat) => chat.id === activeChatId);
 
-      // Update the history with the new question and the corresponding answer
-      setHistory((prev) => [
-        ...prev,
-        { question: question, answer: displayedAnswer },
-      ]);
+      // Add new question entry to the conversation of the active chat
+      setChats((prevChats) => {
+        const newChats = [...prevChats];
+        const currentChat = newChats[chatIndex];
+        currentChat.conversation.push({ question, answer: "" });
+        return newChats;
+      });
+
+      const answer = await generateAnswers(question);
+      const entryIndex = chats[chatIndex].conversation.length - 1;
+
+      // Display the answer word by word
+      displayAnswerWordByWord(answer, chatIndex, entryIndex);
+
       setQuestion(""); // Clear the input after generating the answer
     }
   };
 
+  const handleNewChat = () => {
+    const newChat = {
+      id: uuidv4(), // Unique chat ID
+      title: `Chat ${chats.length + 1}`, // Give the chat a title
+      conversation: [], // Empty conversation
+    };
+
+    setChats([...chats, newChat]);
+    setActiveChatId(newChat.id); // Set the new chat as active
+  };
+
+  const handleChatSelect = (chatId) => {
+    setActiveChatId(chatId); // Set the selected chat as active
+  };
+
+  const activeChat = chats.find((chat) => chat.id === activeChatId); // Find the active chat
+
   return (
     <div className="flex min-h-screen bg-gray-900 text-white">
-    <SideBar history={history} />
-    <div className="ml-64 w-full flex flex-col">
-      <Header />
-      <main className="flex flex-col min-h-screen p-4 space-y-4">
-        <div className="flex-grow">
-          <AnswerDisplay answer={displayedAnswer} />
-        </div>
-        <div className="sticky flex flex-col-reverse gap-1 bottom-0 bg-gray-900">
+      <SideBar
+        isOpen={isSidebarOpen}
+        toggleSidebar={toggleSidebar}
+        chats={chats}
+        activeChatId={activeChatId}
+        onChatSelect={handleChatSelect}
+        onNewChat={handleNewChat}
+      />
+
+      <div className="flex-1  flex flex-col bg-gray-50 transition-all duration-300 ease-in-out">
+        <Header toggleSidebar={toggleSidebar} isSidebarOpen={isSidebarOpen}/>
+
+        <main className="flex-1 flex flex-col p-4 space-y-4 w-[100vw]">
+          {/* Display the conversation of the active chat */}
+          {activeChat ? (
+            <ConversationDisplay conversation={activeChat.conversation} />
+          ) : (
+            <p className="text-gray-400 text-center md:text-lg text-sm">To Start Chatting, Start New Chat from top-right placed Icon! For more info- <a href="https://szswebdev.netlify.app/" target="_blank" className="text-blue-700 underline">SZS Web Dev.</a></p>
+          )}
+        </main>
+
+        <div className="bg-gray-700 m-4 p-3 sticky bottom-0 rounded">
+          <div className="flex flex-col md:space-y-4 space-y-1">
+            <TextArea
+              question={question}
+              setQuestion={setQuestion}
+              handleGenerateAnswer={handleGenerateAnswer}
+            />
+            <GenerateButton
+              loading={loading}
+              handleClick={handleGenerateAnswer}
+            />
           <Footer />
-          <GenerateButton loading={loading} handleClick={handleGenerateAnswer} />
-          <TextArea question={question} setQuestion={setQuestion} />
+          </div>
         </div>
-      </main>
+      </div>
     </div>
-  </div>
   );
 }
 
